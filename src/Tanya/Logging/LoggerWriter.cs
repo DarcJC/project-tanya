@@ -8,6 +8,7 @@ namespace Tanya.Logging
         private readonly CancellationTokenSource _cts;
         private readonly AutoResetEvent _event;
         private readonly ConcurrentQueue<string> _queue;
+        private bool _isDisposed;
 
         #region Constructors
 
@@ -21,8 +22,34 @@ namespace Tanya.Logging
         public static LoggerWriter Create()
         {
             var writer = new LoggerWriter();
-            Task.Factory.StartNew(writer.WriteAsync, TaskCreationOptions.LongRunning);
+            Task.Factory.StartNew(writer.ProcessAsync, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
             return writer;
+        }
+
+        #endregion
+
+        #region Destructors
+
+        ~LoggerWriter()
+        {
+            Dispose(false);
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        private void Dispose(bool disposing)
+        {
+            if (disposing && !_isDisposed)
+            {
+                _cts.Cancel();
+                _event.Dispose();
+            }
+
+            _isDisposed = true;
         }
 
         #endregion
@@ -35,7 +62,7 @@ namespace Tanya.Logging
             _event.Set();
         }
 
-        private async Task WriteAsync()
+        private async Task ProcessAsync()
         {
             await using var fileStream = File.Open("Tanya.log", FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
             await using var writer = new StreamWriter(fileStream);
@@ -52,17 +79,6 @@ namespace Tanya.Logging
                     await writer.FlushAsync().ConfigureAwait(false);
                 }
             }
-        }
-
-        #endregion
-
-        #region Implementation of IDisposable
-
-        public void Dispose()
-        {
-            _cts.Cancel();
-            _event.Dispose();
-            GC.SuppressFinalize(this);
         }
 
         #endregion
